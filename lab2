@@ -1,0 +1,83 @@
+#create dataset
+%%bigquery
+CREATE SCHEMA IF NOT EXISTS emergency_calls_dataset
+OPTIONS(
+ location="us");
+
+#create Table
+CREATE OR REPLACE EXTERNAL TABLE `qwiklabs-gcp-02-e82d432d54e9.emergency_calls_dataset.emergency_calls`
+OPTIONS (
+  format = 'CSV',
+  uris = ['gs://labs.roitraining.com/data-to-ai-workshop/emergency_calls_response_times.csv'],
+  skip_leading_rows = 1,
+  allow_jagged_rows = false,
+  allow_quoted_newlines = false,
+  field_delimiter = ',',
+  max_bad_records = 10
+)
+
+%%bigquery
+CREATE OR REPLACE TABLE `qwiklabs-gcp-02-e82d432d54e9.emergency_calls_dataset.emergency_calls_encoded` AS(
+  SELECT
+  * EXCEPT (
+    call_type, weather_condition, day_of_week, traffic_level
+  ),
+  -- hot encode
+  -- call_type
+  CASE WHEN call_type = 'Police' THEN 1 ELSE 0 END AS call_type_police,
+  CASE WHEN call_type = 'Medical' THEN 1 ELSE 0 END AS call_type_medical,
+  CASE WHEN call_type = 'Fire' THEN 1 ELSE 0 END AS call_type_fire,
+  CASE WHEN call_type = 'Rescue' THEN 1 ELSE 0 END AS call_type_rescue,
+  --weather_condition
+  CASE WHEN weather_condition = 'Rainy' THEN 1 ELSE 0 END AS weather_condition_rainy,
+  CASE WHEN weather_condition = 'Snowy' THEN 1 ELSE 0 END AS weather_condition_snowy,
+  CASE WHEN weather_condition = 'Sunny' THEN 1 ELSE 0 END AS weather_condition_sunny,
+  CASE WHEN weather_condition = 'Windy' THEN 1 ELSE 0 END AS weather_condition_windy,
+
+  --day of the week
+    CASE WHEN day_of_week = 'Sunday' THEN 1 ELSE 0 END AS day_of_week_sunday,
+    CASE WHEN day_of_week = 'Monday' THEN 1 ELSE 0 END AS day_of_week_monday,
+    CASE WHEN day_of_week = 'Tuesday' THEN 1 ELSE 0 END AS day_of_week_tuesday,
+    CASE WHEN day_of_week = 'Wednesday' THEN 1 ELSE 0 END AS day_of_week_wednesday,
+    CASE WHEN day_of_week = 'Thursday' THEN 1 ELSE 0 END AS day_of_week_thursday,
+    CASE WHEN day_of_week = 'Friday' THEN 1 ELSE 0 END AS day_of_week_friday,
+    CASE WHEN day_of_week = 'Saturday' THEN 1 ELSE 0 END AS day_of_week_saturday,
+  -- traffic_level
+    CASE WHEN traffic_level = 'High' THEN 1 ELSE 0 END AS traffic_level_high,
+    CASE WHEN traffic_level = 'Medium' THEN 1 ELSE 0 END AS traffic_level_medium,
+    CASE WHEN traffic_level = 'Low' THEN 1 ELSE 0 END AS traffic_level_low,
+
+   FROM `qwiklabs-gcp-02-e82d432d54e9.emergency_calls_dataset.emergency_calls`
+
+);
+
+#create ML Model and Train
+
+%%bigquery create_model
+CREATE or REPLACE MODEL `qwiklabs-gcp-02-e82d432d54e9.emergency_calls_dataset.response_time_model`
+OPTIONS(
+    model_type='LINEAR_REG',
+    input_label_cols=['response_time']) AS
+SELECT * FROM  `qwiklabs-gcp-02-e82d432d54e9.emergency_calls_dataset.emergency_calls_encoded`
+WHERE response_time IS NOT NULL AND call_timestamp BETWEEN '2023-01-01' AND '2023-11-30'; -- Ensure target variable is not null for training
+
+#evalutate the ML Model
+%%bigquery 
+SELECT * FROM ML.EVALUATE(
+  MODEL `qwiklabs-gcp-02-e82d432d54e9.emergency_calls_dataset.response_time_model`
+)
+
+
+# Predict
+%%bigquery 
+SELECT * FROM ML.PREDICT (
+  MODEL `qwiklabs-gcp-02-e82d432d54e9.emergency_calls_dataset.response_time_model`, (
+    SELECT * FROM `qwiklabs-gcp-02-e82d432d54e9.emergency_calls_dataset.emergency_calls_encoded`
+    WHERE response_time IS NOT NULL AND call_timestamp BETWEEN '2023-12-01' AND '2023-12-31'
+    
+  )
+
+)
+
+
+
